@@ -43,4 +43,4 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            APP_VERSION=${{ github.ref_name }}
+            APP_VERSION=${{ steps.meta.outputs.version }}
