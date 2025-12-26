@@ -25,7 +25,7 @@ jobs:
           images: callmetigro/simple-docker-exporter
           tags: |
             type=semver,pattern={{version}}
-            type=latest
+            type=raw,value=latest
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3 # for ARM builds
