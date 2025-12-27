@@ -70,7 +70,7 @@ Download the latest binary for your architecture from the [Releases](https://git
 ```bash
 mkdir docker-exporter
 cd docker-exporter
-wget [https://github.com/callmetigro/simple-docker-exporter/releases/download/v0.1.0/simple-docker-exporter_linux_amd64.tar.gz](https://github.com/callmetigro/simple-docker-exporter/releases/download/v0.1.0/simple-docker-exporter_linux_amd64.tar.gz)
+wget https://github.com/callmetigro/simple-docker-exporter/releases/download/v0.1.0/simple-docker-exporter_linux_amd64.tar.gz
 tar -xzf simple-docker-exporter_linux_amd64.tar.gz
 sudo mv simple-docker-exporter /usr/local/bin/
 ```
