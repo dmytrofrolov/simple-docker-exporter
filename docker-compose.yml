@@ -1,0 +1,13 @@
+services:
+  exporter:
+    build: .
+    container_name: simple-docker-exporter
+    restart: always
+    ports:
+      - "9487:9487"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+# networks:
+#   web:
+#     external: true

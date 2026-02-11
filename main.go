@@ -21,12 +21,12 @@ var (
     // These can be overridden during build with -ldflags
     appName      = "dockerstats"
     fullProgName = "Simple Docker Stats Prometheus Exporter"
-    version      = "0.1.0"
+    version      = "0.1.1"
 )
 
 var (
     port       = flag.Int("port", 9487, "Port to expose metrics")
-    interval   = flag.Int("interval", 15, "Interval in seconds (min: 3)")
+    interval   = flag.Int("interval", 10, "Interval in seconds (min: 3)")
     hostIP     = flag.String("hostip", "", "Docker host IP (for TCP connection)")
     hostPort   = flag.Int("hostport", 0, "Docker host port (for TCP connection)")
     maxWorkers = flag.Int("workers", 10, "Max concurrent API calls")
@@ -43,25 +43,45 @@ type cpuSnapshot struct {
     name        string
 }
 
+// Internal storage for Network deltas (we convert Docker's absolute counters into Prometheus counters)
+type netSnapshot struct {
+    rxBytes uint64
+    txBytes uint64
+}
+
 var (
     cpuHistory   = make(map[string]cpuSnapshot)
     historyMutex sync.RWMutex
-    registry     = prometheus.NewRegistry()
 
-    // Metrics Gauges
+    netHistory = make(map[string]netSnapshot)
+    netMutex   sync.RWMutex
+
+    registry = prometheus.NewRegistry()
+
+    // Metrics Gauges / Counters
     gaugeCpu        = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_cpu_usage_ratio"}, []string{"name", "id"})
     gaugeMemBytes   = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_memory_usage_bytes"}, []string{"name", "id"})
     gaugeMemRss     = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_memory_usage_rss_bytes"}, []string{"name", "id"})
     gaugeMemLimit   = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_memory_limit_bytes"}, []string{"name", "id"})
     gaugeMemRatio   = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_memory_usage_ratio"}, []string{"name", "id"})
-    gaugeNetRx      = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_network_received_bytes"}, []string{"name", "id"})
-    gaugeNetTx      = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_network_transmitted_bytes"}, []string{"name", "id"})
+    counterNetRx    = prometheus.NewCounterVec(prometheus.CounterOpts{Name: appName + "_network_received_bytes_total"}, []string{"name", "id"})
+    counterNetTx    = prometheus.NewCounterVec(prometheus.CounterOpts{Name: appName + "_network_transmitted_bytes_total"}, []string{"name", "id"})
     gaugeBlockRead  = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_blockio_read_bytes"}, []string{"name", "id"})
     gaugeBlockWrite = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: appName + "_blockio_written_bytes"}, []string{"name", "id"})
 )
 
 func init() {
-    registry.MustRegister(gaugeCpu, gaugeMemBytes, gaugeMemRss, gaugeMemLimit, gaugeMemRatio, gaugeNetRx, gaugeNetTx, gaugeBlockRead, gaugeBlockWrite)
+    registry.MustRegister(
+        gaugeCpu,
+        gaugeMemBytes,
+        gaugeMemRss,
+        gaugeMemLimit,
+        gaugeMemRatio,
+        counterNetRx,
+        counterNetTx,
+        gaugeBlockRead,
+        gaugeBlockWrite,
+    )
 }
 
 func main() {
@@ -197,12 +217,37 @@ func gatherMetrics(cli *client.Client) {
             if memLimit > 0 { gaugeMemRatio.With(labels).Set((memUsage / memLimit) * 100.0) }
             if rss, ok := v.MemoryStats.Stats["rss"]; ok { gaugeMemRss.With(labels).Set(float64(rss)) }
 
-            // --- Network ---
-            for _, net := range v.Networks {
-                gaugeNetRx.With(labels).Set(float64(net.RxBytes))
-                gaugeNetTx.With(labels).Set(float64(net.TxBytes))
-                break
+            // --- Network (cumulative over all interfaces, exported as Prometheus counters) ---
+            var totalRx, totalTx uint64
+            for _, ns := range v.Networks {
+                totalRx += ns.RxBytes
+                totalTx += ns.TxBytes
             }
+
+            netMutex.Lock()
+            prevNet, ok := netHistory[cid]
+            if ok {
+                // Convert Docker's absolute counters into Prometheus counter increments.
+                // Handle possible resets (e.g. container restart or network namespace change)
+                // by ignoring negative deltas and just resetting our baseline.
+                if totalRx >= prevNet.rxBytes {
+                    deltaRx := totalRx - prevNet.rxBytes
+                    if deltaRx > 0 {
+                        counterNetRx.With(labels).Add(float64(deltaRx))
+                    }
+                }
+                if totalTx >= prevNet.txBytes {
+                    deltaTx := totalTx - prevNet.txBytes
+                    if deltaTx > 0 {
+                        counterNetTx.With(labels).Add(float64(deltaTx))
+                    }
+                }
+            }
+            netHistory[cid] = netSnapshot{
+                rxBytes: totalRx,
+                txBytes: totalTx,
+            }
+            netMutex.Unlock()
 
             // --- Block IO ---
             var r, w uint64
@@ -234,12 +279,15 @@ func cleanupHistory() {
             gaugeMemRss.Delete(l)
             gaugeMemLimit.Delete(l)
             gaugeMemRatio.Delete(l)
-            gaugeNetRx.Delete(l)
-            gaugeNetTx.Delete(l)
+            counterNetRx.Delete(l)
+            counterNetTx.Delete(l)
             gaugeBlockRead.Delete(l)
             gaugeBlockWrite.Delete(l)
 
             delete(cpuHistory, id)
+            netMutex.Lock()
+            delete(netHistory, id)
+            netMutex.Unlock()
         }
     }
 }
