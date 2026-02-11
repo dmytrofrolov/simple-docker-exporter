@@ -40,7 +40,7 @@ The exporter provides the following metrics (prefixed with `dockerstats_`):
 services:
   exporter:
     build: https://github.com/dmytrofrolov/simple-docker-exporter.git
-    container_name: docker-stats-exporter
+    container_name: simple-docker-exporter
     restart: always
     ports:
       - "9487:9487"
