@@ -34,23 +34,12 @@ The exporter provides the following metrics (prefixed with `dockerstats_`):
 
 ## Usage
 
-### Using Docker
-
-```bash
-docker run -d \
-  --name simple-docker-exporter \
-  --restart always \
-  -p 9487:9487 \
-  -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  callmetigro/simple-docker-exporter:latest
-```
-
 ### Using Docker Compose
 
 ```yaml
 services:
   exporter:
-    image: callmetigro/simple-docker-exporter:latest
+    build: https://github.com/dmytrofrolov/simple-docker-exporter.git
     container_name: docker-stats-exporter
     restart: always
     ports:
@@ -58,60 +47,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     # command: ["-interval", "10", "-workers", "15"] # Optional flags
-```
-
-### Running as a systemd Service
-
-If you want to run the exporter on a Linux host without Docker, you can set it up as a systemd service.
-
-**1. Download the binary**
-
-Download the latest binary for your architecture from the [Releases](https://github.com/callmetigro/simple-docker-exporter/releases) page:
-```bash
-mkdir docker-exporter
-cd docker-exporter
-wget https://github.com/callmetigro/simple-docker-exporter/releases/download/v0.1.0/simple-docker-exporter_linux_amd64.tar.gz
-tar -xzf simple-docker-exporter_linux_amd64.tar.gz
-sudo mv simple-docker-exporter /usr/local/bin/
-```
-
-**2. Create a dedicated user**
-
-For security, it is recommended to run the exporter under a non-root user. This user needs to be part of the `docker` group to access the Unix socket:
-```bash
-sudo useradd -rs /bin/false docker_exporter
-sudo usermod -aG docker docker_exporter
-```
-
-**3. Create the systemd service unit**
-
-Create a file at `/etc/systemd/system/docker-exporter.service`:
-```
-[Unit]
-Description=Simple Docker Prometheus Exporter
-After=network.target docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-User=docker_exporter
-Group=docker
-# Adjust flags as needed: -port, -interval, etc.
-ExecStart=/usr/local/bin/simple-docker-exporter -port 9487
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**4. Enable and start the service**
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now docker-exporter
-
-# Check status
-sudo systemctl status docker-exporter
 ```
 
 ### Configuration Flags
